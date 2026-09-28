@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mon train">
+<title>Mon train</title>
+<style>
+  body { font-family: system-ui; background: #111; color: #eee; padding: 20px; }
+  .row { display: flex; gap: 12px; font-size: 1.1em; padding: 8px 0; border-bottom: 1px solid #333; }
+  .ligne { min-width: 3.5em; font-weight: bold; }
+  .retard { color: #f66; }
+  .ok { color: #6f6; }
+</style>
+</head>
+<body>
+<h1 id="titre">Chargement…</h1>
+<div id="departs"></div>
+
+<script>
+const DEPART = "Zürich HB";
+const MOT_CLE = "Stettbach";
+
+async function charger() {
+  const url = "https://transport.opendata.ch/v1/stationboard?limit=50"
+            + "&transportations[]=train"
+            + "&station=" + encodeURIComponent(DEPART);
+  const data = await (await fetch(url)).json();
+  document.getElementById("titre").textContent = DEPART + " → " + MOT_CLE;
+
+  const maintenant = Date.now();
+  const heure = d => new Date(d).toLocaleTimeString("fr-CH", {hour: "2-digit", minute: "2-digit"});
+
+  const trains = data.stationboard
+    .map(j => ({ j, arret: (j.passList || []).find(p => (p.station?.name || "").includes(MOT_CLE)) }))
+    .filter(x => x.arret);
+
+  if (trains.length === 0) {
+    document.getElementById("departs").innerHTML = "<p>Aucun train vers " + MOT_CLE + " pour le moment.</p>";
+    return;
+  }
+
+  document.getElementById("departs").innerHTML = trains.map(({ j, arret }) => {
+    const prevu = new Date(j.stop.departure);
+    const reel = j.stop.prognosis?.departure ? new Date(j.stop.prognosis.departure) : prevu;
+    const minutes = Math.round((reel - maintenant) / 60000);
+    const retard = j.stop.delay;
+    const voie = j.stop.platform ? "voie " + j.stop.platform : "";
+    const aArret = arret.arrival || arret.departure;
+    return `<div class="row">
+      <span class="ligne">${j.category}${j.number}</span>
+      <span style="flex:1">${heure(j.stop.departure)} ${voie} → ${j.to}<br><small>à ${MOT_CLE} ${aArret ? heure(aArret) : "?"}</small></span>
+      <span>${minutes <= 0 ? "maintenant" : minutes + " min"}</span>
+      <span class="${retard > 0 ? "retard" : "ok"}">${retard > 0 ? "+" + retard : "OK"}</span>
+    </div>`;
+  }).join("");
+}
+
+charger();
+setInterval(charger, 60000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") charger();
+});
+</script>
+</body>
+</html>
