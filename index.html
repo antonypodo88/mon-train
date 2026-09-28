@@ -4,44 +4,73 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Mon train">
-<title>Mon train</title>
+<meta name="apple-mobile-web-app-title" content="Mes trajets">
+<title>Mes trajets</title>
 <style>
-  body { font-family: system-ui; background: #111; color: #eee; padding: 20px; }
-  .row { display: flex; gap: 12px; font-size: 1.1em; padding: 8px 0; border-bottom: 1px solid #333; }
+  body { font-family: system-ui; background: #111; color: #eee; padding: 16px; margin: 0; }
+  .onglets { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; }
+  .onglets button { background: #222; color: #eee; border: 1px solid #444; border-radius: 20px;
+                    padding: 8px 14px; font-size: 1em; white-space: nowrap; }
+  .onglets button.actif { background: #eee; color: #111; font-weight: bold; }
+  .row { display: flex; gap: 12px; font-size: 1.05em; padding: 8px 0; border-bottom: 1px solid #333; }
   .ligne { min-width: 3.5em; font-weight: bold; }
   .retard { color: #f66; }
   .ok { color: #6f6; }
 </style>
 </head>
 <body>
-<h1 id="titre">Chargement…</h1>
+<div class="onglets" id="onglets"></div>
+<h2 id="titre">Chargement…</h2>
 <div id="departs"></div>
 
 <script>
-const DEPART = "Zürich HB";
-const MOT_CLE = "Stettbach";
+// ===== VOS TRAJETS : modifiez ou ajoutez des lignes ici =====
+const TRAJETS = [
+  { nom: "Boulot",  depart: "Zürich HB",        arret: "Stettbach", type: "train" },
+  { nom: "Retour",  depart: "Zürich Stettbach", arret: "Zürich HB", type: "train" },
+  { nom: "Bus 126", depart: "Wädenswil, Bahnhof",   arret: "Wädenswil, Rötiboden", type: "bus" },
+];
+// ===========================================================
+
+let choix = 0;
+try { choix = Number(localStorage.getItem("trajet")) || 0; } catch (e) {}
+if (choix >= TRAJETS.length) choix = 0;
+
+function afficherOnglets() {
+  document.getElementById("onglets").innerHTML = TRAJETS.map((t, i) =>
+    `<button class="${i === choix ? "actif" : ""}" onclick="choisir(${i})">${t.nom}</button>`
+  ).join("");
+}
+
+function choisir(i) {
+  choix = i;
+  try { localStorage.setItem("trajet", i); } catch (e) {}
+  afficherOnglets();
+  document.getElementById("departs").innerHTML = "";
+  charger();
+}
 
 async function charger() {
+  const t = TRAJETS[choix];
+  document.getElementById("titre").textContent = t.depart + " → " + t.arret;
   const url = "https://transport.opendata.ch/v1/stationboard?limit=50"
-            + "&transportations[]=train"
-            + "&station=" + encodeURIComponent(DEPART);
+            + (t.type ? "&transportations[]=" + t.type : "")
+            + "&station=" + encodeURIComponent(t.depart);
   const data = await (await fetch(url)).json();
-  document.getElementById("titre").textContent = DEPART + " → " + MOT_CLE;
 
   const maintenant = Date.now();
   const heure = d => new Date(d).toLocaleTimeString("fr-CH", {hour: "2-digit", minute: "2-digit"});
 
-  const trains = data.stationboard
-    .map(j => ({ j, arret: (j.passList || []).find(p => (p.station?.name || "").includes(MOT_CLE)) }))
+  const liste = data.stationboard
+    .map(j => ({ j, arret: (j.passList || []).find(p => (p.station?.name || "").includes(t.arret)) }))
     .filter(x => x.arret);
 
-  if (trains.length === 0) {
-    document.getElementById("departs").innerHTML = "<p>Aucun train vers " + MOT_CLE + " pour le moment.</p>";
+  if (liste.length === 0) {
+    document.getElementById("departs").innerHTML = "<p>Aucun départ vers " + t.arret + " pour le moment.</p>";
     return;
   }
 
-  document.getElementById("departs").innerHTML = trains.map(({ j, arret }) => {
+  document.getElementById("departs").innerHTML = liste.map(({ j, arret }) => {
     const prevu = new Date(j.stop.departure);
     const reel = j.stop.prognosis?.departure ? new Date(j.stop.prognosis.departure) : prevu;
     const minutes = Math.round((reel - maintenant) / 60000);
@@ -50,13 +79,14 @@ async function charger() {
     const aArret = arret.arrival || arret.departure;
     return `<div class="row">
       <span class="ligne">${j.category}${j.number}</span>
-      <span style="flex:1">${heure(j.stop.departure)} ${voie} → ${j.to}<br><small>à ${MOT_CLE} ${aArret ? heure(aArret) : "?"}</small></span>
+      <span style="flex:1">${heure(j.stop.departure)} ${voie} → ${j.to}<br><small>à ${t.arret} ${aArret ? heure(aArret) : "?"}</small></span>
       <span>${minutes <= 0 ? "maintenant" : minutes + " min"}</span>
       <span class="${retard > 0 ? "retard" : "ok"}">${retard > 0 ? "+" + retard : "OK"}</span>
     </div>`;
   }).join("");
 }
 
+afficherOnglets();
 charger();
 setInterval(charger, 60000);
 document.addEventListener("visibilitychange", () => {
